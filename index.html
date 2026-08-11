@@ -68,6 +68,7 @@
             <div class="stat-strip">
               <div><span>Score</span><strong id="scoreValue">00</strong></div>
               <div><span>Best run</span><strong id="bestValue">00</strong></div>
+              <div><span>Rush level</span><strong id="levelValue">01</strong></div>
               <div class="timer-stat"><span>Round clock</span><strong id="countdownValue">00:45</strong></div>
             </div>
             <div class="control-buttons">
@@ -110,7 +111,7 @@
               <div class="reward-row"><span><b>02</b> Second place</span><strong>30%</strong></div>
               <div class="reward-row"><span><b>03</b> Third place</span><strong>20%</strong></div>
             </div>
-            <p class="reward-note">Rewards shown are a front-end preview. Payouts should be verified by your backend after the round closes.</p>
+            <p class="reward-note">Fixed rewards: 1st 50%, 2nd 30%, 3rd 20%. Unclaimed places remain unclaimed for the payout backend to handle.</p>
           </section>
         </aside>
 
@@ -126,6 +127,7 @@
             <ol id="leaderboardList" class="leaderboard-list">
               <li class="empty">No scores posted yet</li>
             </ol>
+            <div id="payoutSummary" class="payout-summary" hidden></div>
             <div id="statusCard" class="status-card">Join with a wallet to enter the next round.</div>
           </section>
 

@@ -6,11 +6,13 @@ const walletInput = document.getElementById('walletInput');
 const walletList = document.getElementById('walletList');
 const leaderboardList = document.getElementById('leaderboardList');
 const statusCard = document.getElementById('statusCard');
+const payoutSummary = document.getElementById('payoutSummary');
 const entryHint = document.getElementById('entryHint');
 const playerCount = document.getElementById('playerCount');
 const rosterCount = document.getElementById('rosterCount');
 const scoreValue = document.getElementById('scoreValue');
 const bestValue = document.getElementById('bestValue');
+const levelValue = document.getElementById('levelValue');
 const countdownValue = document.getElementById('countdownValue');
 const poolValue = document.getElementById('poolValue');
 const roundLabel = document.getElementById('roundLabel');
@@ -27,6 +29,8 @@ const config = {
   columns: 10,
   rows: 7,
   tile: 80,
+  speedIncreasePerLevel: 0.18,
+  scorePerLevel: 2,
 };
 
 const prizeShares = [0.5, 0.3, 0.2];
@@ -37,6 +41,9 @@ const game = {
   timer: config.roundLength,
   score: 0,
   best: 0,
+  level: 1,
+  roundId: null,
+  payouts: [],
   activeWallet: '',
   players: [],
   cars: [],
@@ -89,6 +96,7 @@ function hideOverlay() {
 function updateHud() {
   scoreValue.textContent = String(game.score).padStart(2, '0');
   bestValue.textContent = String(game.best).padStart(2, '0');
+  levelValue.textContent = String(game.level).padStart(2, '0');
   countdownValue.textContent = formatClock(game.timer);
   playerCount.textContent = String(game.players.length);
   rosterCount.textContent = `${game.players.length} / 100`;
@@ -160,7 +168,9 @@ function getRankedPlayers() {
 
 function renderLeaderboard(final = false) {
   leaderboardList.replaceChildren();
-  const ranked = getRankedPlayers().slice(0, 3);
+  const ranked = final
+    ? game.payouts.map((payout) => payout.player)
+    : getRankedPlayers().slice(0, 3);
 
   if (!ranked.length) {
     const empty = document.createElement('li');
@@ -171,9 +181,40 @@ function renderLeaderboard(final = false) {
   }
 
   ranked.forEach((player, index) => {
-    const reward = final ? config.pool * prizeShares[index] : 0;
+    const reward = final ? game.payouts[index].amount : 0;
     leaderboardList.append(createLeaderboardRow(player, index, reward));
   });
+}
+
+function calculatePayouts() {
+  const eligibleWinners = getRankedPlayers()
+    .filter((player) => player.score > 0)
+    .slice(0, prizeShares.length);
+
+  const payouts = eligibleWinners.map((player, index) => ({
+    place: index + 1,
+    wallet: player.wallet,
+    score: player.score,
+    amount: Number((config.pool * prizeShares[index]).toFixed(2)),
+    share: prizeShares[index],
+    player,
+    status: 'pending_backend_settlement',
+  }));
+  const paidAmount = payouts.reduce((total, payout) => total + payout.amount, 0);
+
+  return {
+    roundId: game.roundId,
+    poolAmount: config.pool,
+    payouts,
+    unclaimedAmount: Number((config.pool - paidAmount).toFixed(2)),
+    status: 'pending_backend_settlement',
+  };
+}
+
+function publishPayoutManifest(manifest) {
+  window.dispatchEvent(new CustomEvent('bullbank:round-complete', {
+    detail: manifest,
+  }));
 }
 
 function addWallet(rawWallet) {
@@ -233,11 +274,49 @@ function createCars() {
       color: carPalette[(laneIndex + index) % carPalette.length],
     }))
   );
+
+  applyDifficulty();
+}
+
+function createTrafficCar(laneIndex) {
+  const laneSettings = [
+    { row: 1, direction: 1, speed: 85 },
+    { row: 2, direction: -1, speed: 120 },
+    { row: 3, direction: 1, speed: 150 },
+    { row: 4, direction: -1, speed: 105 },
+    { row: 5, direction: 1, speed: 135 },
+  ];
+  const lane = laneSettings[laneIndex % laneSettings.length];
+  const index = game.cars.length;
+
+  return {
+    row: lane.row,
+    direction: lane.direction,
+    speed: lane.speed,
+    width: 74 + (index % 2) * 16,
+    x: lane.direction > 0 ? -180 - (laneIndex * 47) : canvas.width + 80 + (laneIndex * 47),
+    color: carPalette[index % carPalette.length],
+  };
+}
+
+function applyDifficulty() {
+  const speedMultiplier = 1 + (game.level - 1) * config.speedIncreasePerLevel;
+  const targetCarCount = 12 + Math.min(game.level - 1, 6);
+
+  for (const car of game.cars) {
+    car.speedMultiplier = speedMultiplier;
+  }
+
+  while (game.cars.length < targetCarCount) {
+    const newCar = createTrafficCar(game.cars.length % 5);
+    newCar.speedMultiplier = speedMultiplier;
+    game.cars.push(newCar);
+  }
 }
 
 function updateCars(deltaSeconds) {
   for (const car of game.cars) {
-    car.x += car.speed * car.direction * deltaSeconds;
+    car.x += car.speed * car.speedMultiplier * car.direction * deltaSeconds;
     if (car.direction > 0 && car.x > canvas.width + 115) car.x = -car.width - 80;
     if (car.direction < 0 && car.x < -car.width - 115) car.x = canvas.width + 80;
   }
@@ -270,10 +349,19 @@ function bankCurrentScore() {
 function completeRun() {
   game.score += 1;
   game.best = Math.max(game.best, game.score);
+  const nextLevel = Math.floor(game.score / config.scorePerLevel) + 1;
+  const leveledUp = nextLevel > game.level;
+  game.level = nextLevel;
+  if (leveledUp) applyDifficulty();
   bankCurrentScore();
   resetFrog();
   updateHud();
-  setStatus(`Checkpoint banked. ${game.score} ${game.score === 1 ? 'point' : 'points'} on the board.`, true);
+  setStatus(
+    leveledUp
+      ? `Rush level ${game.level}: traffic speed and density increased.`
+      : `Checkpoint banked. ${game.score} ${game.score === 1 ? 'point' : 'points'} on the board.`,
+    true
+  );
 }
 
 function endRound(reason) {
@@ -281,13 +369,19 @@ function endRound(reason) {
   game.state = 'complete';
   cancelAnimationFrame(game.animationFrame);
   bankCurrentScore();
+  const manifest = calculatePayouts();
+  game.payouts = manifest.payouts;
   renderLeaderboard(true);
 
-  const winner = getRankedPlayers()[0];
+  payoutSummary.hidden = false;
+  payoutSummary.textContent = `PAYOUT MANIFEST: ${manifest.payouts.length} winner${manifest.payouts.length === 1 ? '' : 's'} eligible | ${formatMoney(manifest.unclaimedAmount)} unclaimed`;
+  publishPayoutManifest(manifest);
+
+  const winner = manifest.payouts[0];
   const title = reason === 'collision' ? 'Run ended.' : 'Round complete.';
   const detail = winner
-    ? `${shortWallet(winner.wallet)} leads with ${winner.score} points. Reward previews are shown in the standings.`
-    : 'No scores were posted.';
+    ? `${shortWallet(winner.wallet)} takes first with ${winner.score} points. The fixed payout manifest is ready for backend settlement.`
+    : `No eligible score was posted. The full ${formatMoney(config.pool)} remains unclaimed.`;
 
   roundLabel.textContent = 'ROUND COMPLETE';
   setStatus(detail, true);
@@ -307,11 +401,15 @@ function startRound() {
   game.state = 'running';
   game.timer = config.roundLength;
   game.score = 0;
+  game.level = 1;
+  game.payouts = [];
+  game.roundId = `crossy-${Date.now()}`;
   game.lastTimestamp = 0;
   resetFrog();
   createCars();
   updateHud();
   hideOverlay();
+  payoutSummary.hidden = true;
   roundLabel.textContent = 'ROUND LIVE';
   startButton.textContent = 'Round live';
   setStatus(`Round live for ${shortWallet(game.activeWallet)}. Reach the neon bank zone to score.`, true);
@@ -323,11 +421,15 @@ function resetGame() {
   game.state = 'lobby';
   game.timer = config.roundLength;
   game.score = 0;
+  game.level = 1;
+  game.payouts = [];
+  game.roundId = null;
   game.lastTimestamp = 0;
   resetFrog();
   createCars();
   updateHud();
   renderLeaderboard();
+  payoutSummary.hidden = true;
   roundLabel.textContent = 'WAITING FOR PLAYERS';
   startButton.textContent = 'Start round';
   setStatus('Round reset. Select an entered wallet, then start when ready.');
