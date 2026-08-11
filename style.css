@@ -61,7 +61,7 @@ button { cursor: pointer; }
   height: 54px;
   object-fit: contain;
   border-radius: 12px;
-  background: #fff;
+  background: transparent;
 }
 .brand-copy { display: grid; gap: 2px; }
 .brand-name { font-family: var(--mono); font-size: clamp(1rem, 2vw, 1.38rem); letter-spacing: .08em; }
