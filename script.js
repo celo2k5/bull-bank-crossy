@@ -6,424 +6,508 @@ const walletInput = document.getElementById('walletInput');
 const walletList = document.getElementById('walletList');
 const leaderboardList = document.getElementById('leaderboardList');
 const statusCard = document.getElementById('statusCard');
+const entryHint = document.getElementById('entryHint');
+const playerCount = document.getElementById('playerCount');
+const rosterCount = document.getElementById('rosterCount');
 const scoreValue = document.getElementById('scoreValue');
 const bestValue = document.getElementById('bestValue');
 const countdownValue = document.getElementById('countdownValue');
 const poolValue = document.getElementById('poolValue');
-const timerValue = document.getElementById('timerValue');
+const roundLabel = document.getElementById('roundLabel');
+const gameOverlay = document.getElementById('gameOverlay');
+const overlayTitle = document.getElementById('overlayTitle');
+const overlayText = document.getElementById('overlayText');
+const overlayButton = document.getElementById('overlayButton');
 const startButton = document.getElementById('startButton');
 const resetButton = document.getElementById('resetButton');
 
 const config = {
-  lanes: 5,
-  cols: 8,
-  tickMs: 30,
-  roundLength: 45,
-  cellSize: 72,
   pool: 1500,
+  roundLength: 45,
+  columns: 10,
+  rows: 7,
+  tile: 80,
 };
 
+const prizeShares = [0.5, 0.3, 0.2];
+const carPalette = ['#ff7c43', '#73caf6', '#ffdb60', '#bb89ff', '#ff718f'];
+
 const game = {
-  running: false,
+  state: 'lobby',
   timer: config.roundLength,
   score: 0,
   best: 0,
   activeWallet: '',
   players: [],
-  lastTimestamp: 0,
-  Frog: {
-    x: 3,
-    y: 5,
-    size: 26,
-    targetX: 3,
-    targetY: 5,
-  },
   cars: [],
+  frog: { col: 4, row: 6, hop: 0 },
+  animationFrame: null,
+  lastTimestamp: 0,
 };
-
-const rewardShares = [0.5, 0.3, 0.2];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
 function shortWallet(wallet) {
-  if (!wallet) return 'Anonymous';
-  if (wallet.length <= 12) return wallet;
-  return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+  return wallet.length > 13 ? `${wallet.slice(0, 5)}...${wallet.slice(-5)}` : wallet;
 }
 
-function addWalletEntry(wallet) {
-  const cleanWallet = wallet.trim();
-  if (!cleanWallet) return;
-
-  const exists = game.players.some((entry) => entry.wallet === cleanWallet);
-  if (exists) {
-    game.activeWallet = cleanWallet;
-    return;
-  }
-
-  game.players.push({ wallet: cleanWallet, score: 0 });
-  game.activeWallet = cleanWallet;
-  renderWalletList();
+function isPlausibleWallet(wallet) {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet);
 }
 
-function renderWalletList() {
+function activePlayer() {
+  return game.players.find((player) => player.wallet === game.activeWallet);
+}
+
+function formatMoney(value) {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function formatClock(seconds) {
+  const wholeSeconds = Math.max(0, Math.ceil(seconds));
+  return `00:${String(wholeSeconds).padStart(2, '0')}`;
+}
+
+function setStatus(message, success = false) {
+  statusCard.textContent = message;
+  statusCard.classList.toggle('success', success);
+}
+
+function showOverlay(title, text, buttonText) {
+  overlayTitle.textContent = title;
+  overlayText.textContent = text;
+  overlayButton.textContent = buttonText;
+  gameOverlay.classList.remove('hidden');
+}
+
+function hideOverlay() {
+  gameOverlay.classList.add('hidden');
+}
+
+function updateHud() {
+  scoreValue.textContent = String(game.score).padStart(2, '0');
+  bestValue.textContent = String(game.best).padStart(2, '0');
+  countdownValue.textContent = formatClock(game.timer);
+  playerCount.textContent = String(game.players.length);
+  rosterCount.textContent = `${game.players.length} / 100`;
+  poolValue.textContent = formatMoney(config.pool);
+}
+
+function renderRoster() {
+  walletList.replaceChildren();
+
   if (!game.players.length) {
-    walletList.innerHTML = '<li class="placeholder">No players yet</li>';
+    const empty = document.createElement('li');
+    empty.className = 'placeholder';
+    empty.textContent = 'Waiting for the first player';
+    walletList.append(empty);
     return;
   }
 
-  walletList.innerHTML = game.players
-    .map(
-      (entry) =>
-        `<li>${shortWallet(entry.wallet)}${entry.wallet === game.activeWallet ? ' <strong>(active)</strong>' : ''}</li>`
-    )
-    .join('');
+  for (const player of game.players) {
+    const item = document.createElement('li');
+    item.textContent = shortWallet(player.wallet);
+    item.title = player.wallet;
+
+    if (player.wallet === game.activeWallet) {
+      item.classList.add('active');
+      item.textContent += '  ACTIVE';
+    }
+
+    item.addEventListener('click', () => {
+      if (game.state !== 'lobby') return;
+      game.activeWallet = player.wallet;
+      entryHint.textContent = `Playing as ${shortWallet(player.wallet)}. Your next score will be attached to this wallet.`;
+      entryHint.classList.add('active');
+      renderRoster();
+      renderLeaderboard();
+    });
+
+    walletList.append(item);
+  }
 }
 
-function setScore(value) {
-  game.score = value;
-  scoreValue.textContent = String(value);
+function createLeaderboardRow(player, index, prize = 0) {
+  const row = document.createElement('li');
+  const rank = document.createElement('span');
+  const wallet = document.createElement('span');
+  const score = document.createElement('span');
+
+  rank.className = 'rank-badge';
+  wallet.className = 'entry-wallet';
+  score.className = 'entry-score';
+  rank.textContent = String(index + 1).padStart(2, '0');
+  wallet.textContent = shortWallet(player.wallet);
+  wallet.title = player.wallet;
+  score.textContent = `${player.score} pts`;
+  row.append(rank, wallet, score);
+
+  if (prize) {
+    const prizeLine = document.createElement('span');
+    prizeLine.className = 'entry-prize';
+    prizeLine.textContent = `${Math.round(prizeShares[index] * 100)}% projected reward - ${formatMoney(prize)}`;
+    row.append(prizeLine);
+  }
+
+  return row;
 }
 
-function updateTimerUI() {
-  countdownValue.textContent = String(Math.ceil(game.timer));
-  timerValue.textContent = `${Math.ceil(game.timer)}s`;
+function getRankedPlayers() {
+  return [...game.players].sort((a, b) => b.score - a.score || a.joinedAt - b.joinedAt);
 }
 
-function updatePoolUI() {
-  poolValue.textContent = `$${config.pool.toLocaleString()}`;
+function renderLeaderboard(final = false) {
+  leaderboardList.replaceChildren();
+  const ranked = getRankedPlayers().slice(0, 3);
+
+  if (!ranked.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No scores posted yet';
+    leaderboardList.append(empty);
+    return;
+  }
+
+  ranked.forEach((player, index) => {
+    const reward = final ? config.pool * prizeShares[index] : 0;
+    leaderboardList.append(createLeaderboardRow(player, index, reward));
+  });
+}
+
+function addWallet(rawWallet) {
+  const wallet = rawWallet.trim();
+  if (!wallet) {
+    entryHint.textContent = 'Paste a Solana wallet address to enter.';
+    entryHint.classList.remove('active');
+    return;
+  }
+
+  if (!isPlausibleWallet(wallet)) {
+    entryHint.textContent = 'Enter a valid base58 Solana wallet address (32-44 characters).';
+    entryHint.classList.remove('active');
+    return;
+  }
+
+  const existing = game.players.find((player) => player.wallet === wallet);
+  if (existing) {
+    game.activeWallet = existing.wallet;
+    entryHint.textContent = `${shortWallet(existing.wallet)} is already entered and is now your active player.`;
+  } else if (game.players.length < 100) {
+    game.players.push({ wallet, score: 0, joinedAt: Date.now() });
+    game.activeWallet = wallet;
+    entryHint.textContent = `${shortWallet(wallet)} entered. You are ready to play.`;
+  }
+
+  entryHint.classList.add('active');
+  renderRoster();
+  renderLeaderboard();
+  updateHud();
 }
 
 function resetFrog() {
-  game.Frog.x = 3;
-  game.Frog.y = 5;
-  game.Frog.targetX = 3;
-  game.Frog.targetY = 5;
+  game.frog.col = 4;
+  game.frog.row = 6;
+  game.frog.hop = 0;
 }
 
 function createCars() {
-  const laneConfigs = [
-    { y: 60, speed: 1.8, dir: 1, startX: -140 },
-    { y: 150, speed: 2.2, dir: -1, startX: canvas.width + 120 },
-    { y: 240, speed: 2.6, dir: 1, startX: -120 },
-    { y: 330, speed: 2.1, dir: -1, startX: canvas.width + 90 },
-    { y: 420, speed: 2.8, dir: 1, startX: -160 },
+  const laneSettings = [
+    { row: 1, direction: 1, speed: 85, count: 2 },
+    { row: 2, direction: -1, speed: 120, count: 3 },
+    { row: 3, direction: 1, speed: 150, count: 2 },
+    { row: 4, direction: -1, speed: 105, count: 3 },
+    { row: 5, direction: 1, speed: 135, count: 2 },
   ];
 
-  game.cars = laneConfigs.map((lane, index) => ({
-    lane,
-    id: index,
-    x: lane.startX,
-    y: lane.y,
-    width: 110,
-    height: 42,
-    speed: lane.speed,
-    dir: lane.dir,
-  }));
-}
-
-function moveCars() {
-  game.cars.forEach((car) => {
-    car.x += car.speed * car.dir * 1.3;
-
-    if (car.dir > 0 && car.x > canvas.width + 140) {
-      car.x = -160;
-    }
-
-    if (car.dir < 0 && car.x < -180) {
-      car.x = canvas.width + 120;
-    }
-  });
-}
-
-function intersects(a, b) {
-  return (
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y
+  game.cars = laneSettings.flatMap((lane, laneIndex) =>
+    Array.from({ length: lane.count }, (_, index) => ({
+      row: lane.row,
+      direction: lane.direction,
+      speed: lane.speed,
+      width: 74 + ((laneIndex + index) % 2) * 16,
+      x: lane.direction > 0
+        ? -180 + index * 300 + laneIndex * 67
+        : canvas.width + 80 - index * 270 - laneIndex * 48,
+      color: carPalette[(laneIndex + index) % carPalette.length],
+    }))
   );
 }
 
-function checkCollision() {
-  const frogRect = {
-    x: game.Frog.x * config.cellSize + 18,
-    y: game.Frog.y * config.cellSize + 18,
-    width: game.Frog.size,
-    height: game.Frog.size,
-  };
-
+function updateCars(deltaSeconds) {
   for (const car of game.cars) {
-    const carRect = {
-      x: car.x,
-      y: car.y,
-      width: car.width,
-      height: car.height,
-    };
-
-    if (intersects(frogRect, carRect)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function moveFrog(dx, dy) {
-  if (!game.running) return;
-
-  const nextX = clamp(game.Frog.x + dx, 0, config.cols - 1);
-  const nextY = clamp(game.Frog.y + dy, 0, 5);
-
-  game.Frog.targetX = nextX;
-  game.Frog.targetY = nextY;
-  game.Frog.x = nextX;
-  game.Frog.y = nextY;
-
-  if (nextY === 0) {
-    setScore(game.score + 1);
-    if (game.score > game.best) game.best = game.score;
-    bestValue.textContent = String(game.best);
-    resetFrog();
+    car.x += car.speed * car.direction * deltaSeconds;
+    if (car.direction > 0 && car.x > canvas.width + 115) car.x = -car.width - 80;
+    if (car.direction < 0 && car.x < -car.width - 115) car.x = canvas.width + 80;
   }
 }
 
-function drawBackground() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = '#1a2d2d';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = '#2f7a42';
-  ctx.fillRect(0, 0, canvas.width, 60);
-
-  ctx.fillStyle = '#3b7e39';
-  for (let i = 0; i < canvas.width; i += 60) {
-    ctx.fillRect(i, 54, 22, 12);
-  }
-
-  for (let row = 0; row < 6; row++) {
-    const y = row * config.cellSize;
-    if (row > 0 && row <= 5) {
-      ctx.fillStyle = '#2d3239';
-      ctx.fillRect(0, y + 10, canvas.width, 50);
-    }
-  }
-
-  ctx.fillStyle = '#1c1c23';
-  ctx.fillRect(0, 60, canvas.width, 420);
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 2;
-  for (let i = 1; i < 8; i++) {
-    ctx.beginPath();
-    ctx.moveTo(i * config.cellSize, 60);
-    ctx.lineTo(i * config.cellSize, 480);
-    ctx.stroke();
-  }
-
-  for (let i = 0; i < 8; i++) {
-    ctx.fillStyle = '#c9d4eb';
-    ctx.fillRect(i * config.cellSize + 14, 62, 4, 430);
-  }
+function frogRect() {
+  return {
+    x: game.frog.col * config.tile + 24,
+    y: game.frog.row * config.tile + 24,
+    width: 32,
+    height: 32,
+  };
 }
 
-function drawCars() {
-  game.cars.forEach((car) => {
-    ctx.fillStyle = '#ff7f50';
-    ctx.fillRect(car.x, car.y, car.width, car.height);
-
-    ctx.fillStyle = '#2b1d16';
-    ctx.fillRect(car.x + 12, car.y + 10, car.width - 24, 8);
-    ctx.fillRect(car.x + 12, car.y + 24, car.width - 24, 8);
-    ctx.fillStyle = '#dfe7ff';
-    ctx.fillRect(car.x + 18, car.y + 10, 18, 8);
-    ctx.fillRect(car.x + car.width - 36, car.y + 10, 18, 8);
+function hitDetected() {
+  const frog = frogRect();
+  return game.cars.some((car) => {
+    if (car.row !== game.frog.row) return false;
+    const carY = car.row * config.tile + 17;
+    return frog.x < car.x + car.width && frog.x + frog.width > car.x && frog.y < carY + 45 && frog.y + frog.height > carY;
   });
 }
 
-function drawFrog() {
-  const x = game.Frog.x * config.cellSize + 18;
-  const y = game.Frog.y * config.cellSize + 18;
-
-  ctx.fillStyle = '#7defa0';
-  ctx.beginPath();
-  ctx.arc(x + 18, y + 18, 18, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#3ad77c';
-  ctx.beginPath();
-  ctx.moveTo(x + 12, y + 20);
-  ctx.lineTo(x + 4, y + 36);
-  ctx.lineTo(x + 18, y + 34);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(x + 24, y + 20);
-  ctx.lineTo(x + 32, y + 36);
-  ctx.lineTo(x + 18, y + 34);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = '#d4fbe0';
-  ctx.fillRect(x + 12, y + 8, 12, 8);
-  ctx.fillStyle = '#111';
-  ctx.fillRect(x + 16, y + 8, 4, 4);
-  ctx.fillRect(x + 20, y + 8, 4, 4);
+function bankCurrentScore() {
+  const player = activePlayer();
+  if (player) player.score = Math.max(player.score, game.score);
+  renderLeaderboard();
 }
 
-function drawStatusText() {
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = '700 16px Inter';
-  ctx.fillText('CROSSY RUSH', 24, 34);
+function completeRun() {
+  game.score += 1;
+  game.best = Math.max(game.best, game.score);
+  bankCurrentScore();
+  resetFrog();
+  updateHud();
+  setStatus(`Checkpoint banked. ${game.score} ${game.score === 1 ? 'point' : 'points'} on the board.`, true);
 }
 
-function render() {
-  drawBackground();
-  drawCars();
-  drawFrog();
-  drawStatusText();
-}
+function endRound(reason) {
+  if (game.state !== 'running') return;
+  game.state = 'complete';
+  cancelAnimationFrame(game.animationFrame);
+  bankCurrentScore();
+  renderLeaderboard(true);
 
-function endRound() {
-  game.running = false;
+  const winner = getRankedPlayers()[0];
+  const title = reason === 'collision' ? 'Run ended.' : 'Round complete.';
+  const detail = winner
+    ? `${shortWallet(winner.wallet)} leads with ${winner.score} points. Reward previews are shown in the standings.`
+    : 'No scores were posted.';
 
-  const sorted = [...game.players]
-    .map((entry) => ({ ...entry, score: Number(entry.score) || 0 }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-
-  const finalResults = sorted.map((entry, idx) => {
-    const share = rewardShares[idx] || 0;
-    const amount = config.pool * share;
-    return { ...entry, share, amount };
-  });
-
-  leaderboardList.innerHTML = finalResults
-    .map(
-      (entry, idx) => `
-        <li>
-          <span class="rank-badge">${idx + 1}</span>
-          <span class="entry-wallet">${shortWallet(entry.wallet)}</span>
-          <span class="entry-score">${entry.score}</span>
-        </li>
-      `
-    )
-    .join('');
-
-  const summaryText = finalResults.length
-    ? finalResults
-        .map((entry) => `${entry.wallet ? shortWallet(entry.wallet) : 'Wallet'}: $${entry.amount.toFixed(0)}`)
-        .join(' • ')
-    : 'No winners this round.';
-
-  statusCard.textContent = `Round complete. Rewards split: ${summaryText}`;
-
-  if (!game.players.length) {
-    game.activeWallet = '';
-    statusCard.textContent = 'No players entered. Start with a wallet address.';
-  }
-}
-
-function syncPlayerScore() {
-  if (!game.activeWallet) return;
-  const active = game.players.find((entry) => entry.wallet === game.activeWallet);
-  if (active) {
-    active.score = game.score;
-  }
-}
-
-function tick(timestamp) {
-  if (!game.running) {
-    render();
-    requestAnimationFrame(tick);
-    return;
-  }
-
-  if (!game.lastTimestamp) game.lastTimestamp = timestamp;
-  const delta = timestamp - game.lastTimestamp;
-  game.lastTimestamp = timestamp;
-
-  game.timer -= delta / 1000;
-  updateTimerUI();
-
-  if (game.timer <= 0) {
-    syncPlayerScore();
-    endRound();
-    return;
-  }
-
-  moveCars();
-  if (checkCollision()) {
-    syncPlayerScore();
-    endRound();
-    return;
-  }
-
-  render();
-  requestAnimationFrame(tick);
+  roundLabel.textContent = 'ROUND COMPLETE';
+  setStatus(detail, true);
+  showOverlay(title, detail, 'Play another round');
+  startButton.textContent = 'New round';
 }
 
 function startRound() {
-  if (!game.players.length) {
-    statusCard.textContent = 'Add at least one wallet address before starting.';
+  if (!game.activeWallet) {
+    setStatus('Enter a wallet address before starting a prize round.');
+    walletInput.focus();
     return;
   }
 
-  game.running = true;
+  if (game.state === 'running') return;
+
+  game.state = 'running';
   game.timer = config.roundLength;
+  game.score = 0;
   game.lastTimestamp = 0;
-  setScore(0);
-  updateTimerUI();
   resetFrog();
   createCars();
-  syncPlayerScore();
-  statusCard.textContent = `Round live for ${shortWallet(game.activeWallet)}.`;
-  requestAnimationFrame(tick);
+  updateHud();
+  hideOverlay();
+  roundLabel.textContent = 'ROUND LIVE';
+  startButton.textContent = 'Round live';
+  setStatus(`Round live for ${shortWallet(game.activeWallet)}. Reach the neon bank zone to score.`, true);
+  game.animationFrame = requestAnimationFrame(loop);
 }
 
 function resetGame() {
-  game.running = false;
+  cancelAnimationFrame(game.animationFrame);
+  game.state = 'lobby';
   game.timer = config.roundLength;
-  setScore(0);
+  game.score = 0;
+  game.lastTimestamp = 0;
   resetFrog();
   createCars();
-  updateTimerUI();
-  leaderboardList.innerHTML = '<li class="empty">Waiting for players</li>';
-  statusCard.textContent = 'Waiting to start.';
+  updateHud();
+  renderLeaderboard();
+  roundLabel.textContent = 'WAITING FOR PLAYERS';
+  startButton.textContent = 'Start round';
+  setStatus('Round reset. Select an entered wallet, then start when ready.');
+  showOverlay('Ready to rush?', 'Enter a wallet, then start the round. Cross each road to bank your score.', 'Start playing');
   render();
+}
+
+function moveFrog(deltaColumn, deltaRow) {
+  if (game.state !== 'running') return;
+  game.frog.col = clamp(game.frog.col + deltaColumn, 0, config.columns - 1);
+  game.frog.row = clamp(game.frog.row + deltaRow, 0, config.rows - 1);
+  game.frog.hop = 1;
+
+  if (game.frog.row === 0) completeRun();
+}
+
+function drawPixelBackground() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#143127';
+  ctx.fillRect(0, 0, canvas.width, config.tile);
+  ctx.fillStyle = '#0c211c';
+  ctx.fillRect(0, config.tile * 6, canvas.width, config.tile);
+
+  ctx.fillStyle = '#1a1d22';
+  ctx.fillRect(0, config.tile, canvas.width, config.tile * 5);
+
+  for (let row = 1; row <= 5; row += 1) {
+    const y = row * config.tile;
+    ctx.fillStyle = row % 2 === 0 ? '#22262c' : '#1c2026';
+    ctx.fillRect(0, y, canvas.width, config.tile);
+    ctx.strokeStyle = 'rgba(255,255,255,.12)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([27, 22]);
+    ctx.beginPath();
+    ctx.moveTo(0, y + config.tile - 4);
+    ctx.lineTo(canvas.width, y + config.tile - 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  for (let x = 0; x < canvas.width; x += 60) {
+    ctx.fillStyle = x % 120 === 0 ? '#2d6042' : '#25543b';
+    ctx.fillRect(x + 5, 18, 18, 14);
+    ctx.fillRect(x + 28, 34, 12, 12);
+    ctx.fillRect(x + 42, 13, 11, 16);
+  }
+
+  ctx.fillStyle = '#dfff63';
+  ctx.fillRect(0, 68, canvas.width, 4);
+  ctx.fillStyle = '#80a72e';
+  ctx.fillRect(0, 0, canvas.width, 5);
+
+  ctx.fillStyle = 'rgba(223,255,99,.18)';
+  ctx.fillRect(22, 20, 162, 30);
+  ctx.fillStyle = '#e8f8ad';
+  ctx.font = '600 12px "DM Mono"';
+  ctx.fillText('NEON BANK ZONE', 38, 40);
+}
+
+function drawCar(car) {
+  const y = car.row * config.tile + 17;
+  const height = 45;
+
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.fillRect(car.x + 4, y + height, car.width - 8, 4);
+  ctx.fillStyle = car.color;
+  ctx.fillRect(car.x, y + 8, car.width, height - 8);
+  ctx.fillStyle = '#15171b';
+  ctx.fillRect(car.x + 10, y + 16, car.width - 20, 13);
+  ctx.fillStyle = '#bdeaff';
+  ctx.fillRect(car.x + (car.direction > 0 ? car.width - 16 : 7), y + 20, 9, 6);
+  ctx.fillStyle = '#0d1013';
+  ctx.fillRect(car.x + 11, y + height - 2, 14, 6);
+  ctx.fillRect(car.x + car.width - 25, y + height - 2, 14, 6);
+}
+
+function drawFrog() {
+  const x = game.frog.col * config.tile + 19;
+  const y = game.frog.row * config.tile + 19 - Math.sin(game.frog.hop * Math.PI) * 8;
+
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.fillRect(x + 5, y + 42, 38, 5);
+  ctx.fillStyle = '#dfff63';
+  ctx.fillRect(x + 8, y + 12, 34, 29);
+  ctx.fillStyle = '#b9dc45';
+  ctx.fillRect(x + 3, y + 24, 11, 17);
+  ctx.fillRect(x + 36, y + 24, 11, 17);
+  ctx.fillStyle = '#f0ffd0';
+  ctx.fillRect(x + 11, y + 4, 12, 12);
+  ctx.fillRect(x + 28, y + 4, 12, 12);
+  ctx.fillStyle = '#101410';
+  ctx.fillRect(x + 16, y + 8, 4, 4);
+  ctx.fillRect(x + 31, y + 8, 4, 4);
+  ctx.fillStyle = '#202b14';
+  ctx.fillRect(x + 20, y + 28, 11, 3);
+}
+
+function render() {
+  drawPixelBackground();
+  game.cars.forEach(drawCar);
+  drawFrog();
+}
+
+function loop(timestamp) {
+  if (game.state !== 'running') return;
+  if (!game.lastTimestamp) game.lastTimestamp = timestamp;
+  const deltaSeconds = Math.min((timestamp - game.lastTimestamp) / 1000, 0.05);
+  game.lastTimestamp = timestamp;
+  game.timer -= deltaSeconds;
+  game.frog.hop = Math.max(0, game.frog.hop - deltaSeconds * 5);
+
+  if (game.timer <= 0) {
+    game.timer = 0;
+    updateHud();
+    render();
+    endRound('timer');
+    return;
+  }
+
+  updateCars(deltaSeconds);
+  if (hitDetected()) {
+    render();
+    endRound('collision');
+    return;
+  }
+
+  updateHud();
+  render();
+  game.animationFrame = requestAnimationFrame(loop);
 }
 
 walletForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  const rawWallet = walletInput.value;
-  addWalletEntry(rawWallet);
-  walletInput.value = '';
-  walletInput.focus();
-  if (!game.running) {
-    statusCard.textContent = `Wallet added: ${shortWallet(game.activeWallet)}. Press Start Round to begin.`;
+  if (game.state === 'running') {
+    setStatus('Wallet entry is locked while a round is live.');
+    return;
   }
+  addWallet(walletInput.value);
+  walletInput.value = '';
 });
 
 startButton.addEventListener('click', startRound);
 resetButton.addEventListener('click', resetGame);
+overlayButton.addEventListener('click', startRound);
 
 window.addEventListener('keydown', (event) => {
-  const key = event.key.toLowerCase();
-  if (key === 'arrowup' || key === 'w') moveFrog(0, -1);
-  if (key === 'arrowdown' || key === 's') moveFrog(0, 1);
-  if (key === 'arrowleft' || key === 'a') moveFrog(-1, 0);
-  if (key === 'arrowright' || key === 'd') moveFrog(1, 0);
+  const movement = {
+    ArrowUp: [0, -1], w: [0, -1],
+    ArrowDown: [0, 1], s: [0, 1],
+    ArrowLeft: [-1, 0], a: [-1, 0],
+    ArrowRight: [1, 0], d: [1, 0],
+  };
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if (movement[key]) {
+    event.preventDefault();
+    moveFrog(...movement[key]);
+  }
 });
 
+let touchStart;
+canvas.addEventListener('touchstart', (event) => {
+  touchStart = event.changedTouches[0];
+}, { passive: true });
+canvas.addEventListener('touchend', (event) => {
+  if (!touchStart) return;
+  const end = event.changedTouches[0];
+  const deltaX = end.clientX - touchStart.clientX;
+  const deltaY = end.clientY - touchStart.clientY;
+  if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 24) return;
+  if (Math.abs(deltaX) > Math.abs(deltaY)) moveFrog(deltaX > 0 ? 1 : -1, 0);
+  else moveFrog(0, deltaY > 0 ? 1 : -1);
+  touchStart = null;
+}, { passive: true });
+
 function init() {
-  setScore(0);
-  updatePoolUI();
-  updateTimerUI();
   createCars();
+  updateHud();
+  renderRoster();
+  renderLeaderboard();
   render();
 }
 
