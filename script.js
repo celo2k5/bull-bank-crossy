@@ -28,15 +28,15 @@ const audioToggle = document.getElementById('audioToggle');
 const config = {
   pool: 1500,
   roundLength: 45,
-  columns: 16,
-  rows: 13,
-  tile: 50,
+  columns: 12,
+  rows: 9,
+  tile: 60,
   frogSize: 30,
-  scorePerLevel: 2,
-  speedIncreasePerLevel: 0.15,
-  roadRows: [4, 5, 10, 11],
-  riverRows: [1, 2, 7, 8],
-  safeRows: [3, 6, 9, 12],
+  scorePerLevel: 1,
+  speedIncreasePerLevel: 0.22,
+  roadRows: [5, 6, 7],
+  riverRows: [1, 2, 3],
+  safeRows: [4, 8],
 };
 
 const prizeShares = [0.5, 0.3, 0.2];
@@ -54,7 +54,7 @@ const game = {
   players: [],
   cars: [],
   logs: [],
-  frog: { x: 385, row: 12, hop: 0 },
+  frog: { x: 345, row: 8, hop: 0 },
   animationFrame: null,
   lastTimestamp: 0,
   audio: { context: null, muted: false },
@@ -279,26 +279,23 @@ function addWallet(rawWallet) {
 
 function resetFrog() {
   game.frog.x = (canvas.width - config.frogSize) / 2;
-  game.frog.row = 12;
+  game.frog.row = 8;
   game.frog.hop = 0;
 }
 
 function createCars() {
   const laneSettings = [
-    { row: 11, direction: -1, speed: 105, count: 3 },
-    { row: 10, direction: 1, speed: 90, count: 3 },
-    { row: 5, direction: -1, speed: 125, count: 3 },
-    { row: 4, direction: 1, speed: 110, count: 3 },
+    { row: 7, direction: -1, speed: 135, starts: [800, 600, 240, 30] },
+    { row: 6, direction: 1, speed: 165, starts: [-120, 100, 420, 650] },
+    { row: 5, direction: -1, speed: 195, starts: [790, 560, 300, 30] },
   ];
   game.cars = laneSettings.flatMap((lane, laneIndex) =>
-    Array.from({ length: lane.count }, (_, index) => ({
+    lane.starts.map((start, index) => ({
       row: lane.row,
       direction: lane.direction,
       speed: lane.speed,
-      width: 58 + ((laneIndex + index) % 2) * 16,
-      x: lane.direction > 0
-        ? -140 + index * 300 + laneIndex * 43
-        : canvas.width + 160 - index * 250 - laneIndex * 15,
+      width: 58 + ((laneIndex + index) % 2) * 12,
+      x: start,
       color: carPalette[(laneIndex + index) % carPalette.length],
       speedMultiplier: 1,
     }))
@@ -307,21 +304,18 @@ function createCars() {
 
 function createLogs() {
   const laneSettings = [
-    { row: 8, direction: 1, speed: 44, count: 3 },
-    { row: 7, direction: -1, speed: 55, count: 3 },
-    { row: 2, direction: 1, speed: 63, count: 3 },
-    { row: 1, direction: -1, speed: 50, count: 3 },
+    { row: 3, direction: 1, speed: 72, starts: [-115, 130, 370, 610] },
+    { row: 2, direction: -1, speed: 88, starts: [760, 540, 300, 80] },
+    { row: 1, direction: 1, speed: 103, starts: [-90, 180, 450, 680] },
   ];
   game.logs = laneSettings.flatMap((lane, laneIndex) =>
-    Array.from({ length: lane.count }, (_, index) => ({
+    lane.starts.map((start) => ({
       row: lane.row,
       direction: lane.direction,
       speed: lane.speed,
-      baseWidth: 150 - (laneIndex % 2) * 12,
-      width: 150 - (laneIndex % 2) * 12,
-      x: lane.direction > 0
-        ? -165 + index * 290 + laneIndex * 35
-        : canvas.width + 30 - index * 280 - laneIndex * 52,
+      baseWidth: 112 - (laneIndex % 2) * 8,
+      width: 112 - (laneIndex % 2) * 8,
+      x: start,
       speedMultiplier: 1,
     }))
   );
@@ -329,10 +323,9 @@ function createLogs() {
 
 function createTrafficCar(laneIndex) {
   const lanes = [
-    { row: 11, direction: -1, speed: 105 },
-    { row: 10, direction: 1, speed: 90 },
-    { row: 5, direction: -1, speed: 125 },
-    { row: 4, direction: 1, speed: 110 },
+    { row: 7, direction: -1, speed: 135 },
+    { row: 6, direction: 1, speed: 165 },
+    { row: 5, direction: -1, speed: 195 },
   ];
   const lane = lanes[laneIndex % lanes.length];
   const index = game.cars.length;
@@ -347,11 +340,11 @@ function createTrafficCar(laneIndex) {
 
 function applyDifficulty() {
   const speedMultiplier = 1 + (game.level - 1) * config.speedIncreasePerLevel;
-  const targetCarCount = 12 + Math.min(game.level - 1, 8);
+  const targetCarCount = 12 + Math.min((game.level - 1) * 2, 12);
   for (const car of game.cars) car.speedMultiplier = speedMultiplier;
   for (const log of game.logs) {
     log.speedMultiplier = speedMultiplier;
-    log.width = Math.max(88, log.baseWidth - (game.level - 1) * 4);
+    log.width = Math.max(64, log.baseWidth - (game.level - 1) * 5);
   }
   while (game.cars.length < targetCarCount) {
     const car = createTrafficCar(game.cars.length % 4);
@@ -432,7 +425,7 @@ function completeRun() {
   playSound('score');
   setStatus(
     leveledUp
-      ? `Level ${game.level}: vehicles are faster and logs are shorter.`
+      ? `Level ${game.level}: traffic is faster and the log gaps are tighter.`
       : `Finish reached. ${game.score} ${game.score === 1 ? 'point' : 'points'} banked.`,
     true
   );
@@ -487,7 +480,7 @@ function startRound() {
   payoutSummary.hidden = true;
   roundLabel.textContent = 'ROUND LIVE';
   startButton.textContent = 'Round live';
-  setStatus(`Round live for ${shortWallet(game.activeWallet)}. Cross both roads and both rivers to reach the finish.`, true);
+  setStatus(`Round live for ${shortWallet(game.activeWallet)}. Survive the road, then ride the logs to the finish.`, true);
   game.animationFrame = requestAnimationFrame(loop);
 }
 
@@ -510,7 +503,7 @@ function resetGame() {
   roundLabel.textContent = 'WAITING FOR HOPPERS';
   startButton.textContent = 'Start round';
   setStatus('Round reset. Select an entered wallet, then start when ready.');
-  showOverlay('Ready to hop?', 'Enter a wallet, cross two roads and two rivers, then reach the finish to bank your score.', 'Start playing');
+  showOverlay('Ready to hop?', 'Enter a wallet, survive the road, then ride the logs to the finish and bank your score.', 'Start playing');
   render();
 }
 
@@ -560,14 +553,12 @@ function drawBackground() {
   }
 
   ctx.fillStyle = '#88f73e';
-  [50, 150, 300, 450].forEach((y) => ctx.fillRect(0, y - 3, canvas.width, 3));
+  [60, 240, 300].forEach((y) => ctx.fillRect(0, y - 3, canvas.width, 3));
   ctx.fillStyle = 'rgba(222,255,175,.8)';
   ctx.font = '600 11px "DM Mono"';
   ctx.fillText('FINISH', 20, 31);
-  ctx.fillText('RIVER II', 680, 82);
-  ctx.fillText('ROAD II', 685, 232);
-  ctx.fillText('RIVER I', 680, 382);
-  ctx.fillText('ROAD I', 685, 532);
+  ctx.fillText('RIVER', 650, 82);
+  ctx.fillText('ROAD', 655, 322);
 }
 
 function drawCar(car) {

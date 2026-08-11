@@ -1,17 +1,16 @@
 # $FROGGER Play 2 Earn
 
-$FROGGER is a front-end play-to-earn arcade game. Players enter a Solana wallet, cross two roads, ride logs through two rivers, and compete for a creator reward pool.
+$FROGGER is a front-end play-to-earn arcade game. Players enter a Solana wallet, survive a dense road section, ride logs across the river, and compete for a creator reward pool.
 
 ## Gameplay
 
-The board is a four-zone crossing course:
+The board is a compact fixed crossing course:
 
-1. **Road I** - dodge moving traffic to reach the first grass checkpoint.
-2. **River I** - hop only onto logs. Landing in open water ends the run.
-3. **Road II** - cross a faster second traffic section.
-4. **River II** - ride the last log section to reach the finish.
+1. **Road** - cross three increasingly fast traffic lanes.
+2. **River** - hop only onto short moving logs. Landing in open water ends the run.
+3. **Finish** - reach the final grass zone to bank a point.
 
-Logs carry the frog in the direction of the current, so the player must adjust position while riding. Reach the FROGGER FINISH zone to bank a point and restart at the bottom. Every two points increase the rush level, making traffic and river currents faster, shortening logs, and adding more traffic.
+Logs carry the frog in the direction of the current, so the player must adjust position while riding. Reach the FROGGER FINISH zone to bank a point and restart at the bottom. Every point increases the rush level, making traffic and river currents faster, shortening logs, and adding more traffic.
 
 Controls:
 
