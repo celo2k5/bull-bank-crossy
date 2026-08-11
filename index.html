@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BULL BANK | Crossy Rush</title>
+    <meta
+      name="description"
+      content="BULL BANK Crossy Rush - a playful frog-style game with wallet entry and split reward rounds."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Orbitron:wght@500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="BULL BANK home">
+          <div class="brand-mark">BB</div>
+          <div class="brand-copy">
+            <span class="brand-kicker">Creator Rewards</span>
+            <span class="brand-name">BULL BANK</span>
+          </div>
+        </div>
+
+        <div class="status-pill">Round Reward Pool</div>
+      </header>
+
+      <main class="dashboard">
+        <aside class="panel sidebar">
+          <div class="panel-title">Player Entry</div>
+
+          <form id="walletForm" class="wallet-form">
+            <label for="walletInput">Wallet Address</label>
+            <input
+              id="walletInput"
+              type="text"
+              placeholder="Enter wallet address"
+              autocomplete="off"
+            />
+            <button type="submit">Join Round</button>
+          </form>
+
+          <div class="round-summary">
+            <div>
+              <span>Pool</span>
+              <strong id="poolValue">$1,500</strong>
+            </div>
+            <div>
+              <span>Round ends</span>
+              <strong id="timerValue">45s</strong>
+            </div>
+          </div>
+
+          <div class="entered-wallets">
+            <h3>Entered wallets</h3>
+            <ul id="walletList">
+              <li class="placeholder">No players yet</li>
+            </ul>
+          </div>
+
+          <div class="reward-split">
+            <h3>Reward split</h3>
+            <div class="split-row">
+              <span>1st</span>
+              <strong>50%</strong>
+            </div>
+            <div class="split-row">
+              <span>2nd</span>
+              <strong>30%</strong>
+            </div>
+            <div class="split-row">
+              <span>3rd</span>
+              <strong>20%</strong>
+            </div>
+          </div>
+        </aside>
+
+        <section class="panel game-panel">
+          <div class="hud">
+            <div class="hud-box">
+              <span>Score</span>
+              <strong id="scoreValue">0</strong>
+            </div>
+            <div class="hud-box">
+              <span>Best</span>
+              <strong id="bestValue">0</strong>
+            </div>
+            <div class="hud-box">
+              <span>Timer</span>
+              <strong id="countdownValue">45</strong>
+            </div>
+          </div>
+
+          <canvas id="gameCanvas" width="720" height="540" aria-label="Crossy Road styled frog game"></canvas>
+
+          <div class="controls">
+            <button id="startButton" type="button">Start Round</button>
+            <button id="resetButton" type="button" class="secondary">Reset</button>
+          </div>
+        </section>
+
+        <aside class="panel leaderboard-panel">
+          <div class="panel-title">Round Leaderboard</div>
+
+          <ol id="leaderboardList" class="leaderboard-list">
+            <li class="empty">Waiting for players</li>
+          </ol>
+
+          <div id="statusCard" class="winner-card">
+            Waiting to start.
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
