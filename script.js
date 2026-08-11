@@ -13,6 +13,7 @@ const rosterCount = document.getElementById('rosterCount');
 const scoreValue = document.getElementById('scoreValue');
 const bestValue = document.getElementById('bestValue');
 const levelValue = document.getElementById('levelValue');
+const zoneValue = document.getElementById('zoneValue');
 const countdownValue = document.getElementById('countdownValue');
 const poolValue = document.getElementById('poolValue');
 const roundLabel = document.getElementById('roundLabel');
@@ -22,19 +23,24 @@ const overlayText = document.getElementById('overlayText');
 const overlayButton = document.getElementById('overlayButton');
 const startButton = document.getElementById('startButton');
 const resetButton = document.getElementById('resetButton');
+const audioToggle = document.getElementById('audioToggle');
 
 const config = {
   pool: 1500,
   roundLength: 45,
-  columns: 10,
-  rows: 7,
-  tile: 80,
-  speedIncreasePerLevel: 0.18,
+  columns: 16,
+  rows: 13,
+  tile: 50,
+  frogSize: 30,
   scorePerLevel: 2,
+  speedIncreasePerLevel: 0.15,
+  roadRows: [4, 5, 10, 11],
+  riverRows: [1, 2, 7, 8],
+  safeRows: [3, 6, 9, 12],
 };
 
 const prizeShares = [0.5, 0.3, 0.2];
-const carPalette = ['#ff7c43', '#73caf6', '#ffdb60', '#bb89ff', '#ff718f'];
+const carPalette = ['#ff5e57', '#f6bf3d', '#36b4ed', '#a978ff', '#f76da7'];
 
 const game = {
   state: 'lobby',
@@ -47,9 +53,11 @@ const game = {
   activeWallet: '',
   players: [],
   cars: [],
-  frog: { col: 4, row: 6, hop: 0 },
+  logs: [],
+  frog: { x: 385, row: 12, hop: 0 },
   animationFrame: null,
   lastTimestamp: 0,
+  audio: { context: null, muted: false },
 };
 
 function clamp(value, min, max) {
@@ -73,8 +81,14 @@ function formatMoney(value) {
 }
 
 function formatClock(seconds) {
-  const wholeSeconds = Math.max(0, Math.ceil(seconds));
-  return `00:${String(wholeSeconds).padStart(2, '0')}`;
+  return `00:${String(Math.max(0, Math.ceil(seconds))).padStart(2, '0')}`;
+}
+
+function getZone(row) {
+  if (row === 0) return 'FINISH';
+  if (config.roadRows.includes(row)) return 'ROAD';
+  if (config.riverRows.includes(row)) return 'RIVER';
+  return 'SAFE';
 }
 
 function setStatus(message, success = false) {
@@ -93,10 +107,49 @@ function hideOverlay() {
   gameOverlay.classList.add('hidden');
 }
 
+function ensureAudio() {
+  if (!game.audio.context) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    game.audio.context = new AudioContext();
+  }
+  if (game.audio.context.state === 'suspended') game.audio.context.resume();
+}
+
+function playTone(frequency, duration, type = 'square', volume = 0.03, delay = 0) {
+  if (game.audio.muted || !game.audio.context) return;
+
+  const startTime = game.audio.context.currentTime + delay;
+  const oscillator = game.audio.context.createOscillator();
+  const gain = game.audio.context.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  oscillator.connect(gain);
+  gain.connect(game.audio.context.destination);
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.02);
+}
+
+function playSound(name) {
+  if (name === 'hop') playTone(330, 0.06, 'square', 0.025);
+  if (name === 'score') {
+    playTone(523, 0.1, 'triangle', 0.04);
+    playTone(784, 0.16, 'triangle', 0.04, 0.1);
+  }
+  if (name === 'hit') {
+    playTone(130, 0.24, 'sawtooth', 0.06);
+    playTone(80, 0.3, 'sawtooth', 0.045, 0.08);
+  }
+}
+
 function updateHud() {
   scoreValue.textContent = String(game.score).padStart(2, '0');
   bestValue.textContent = String(game.best).padStart(2, '0');
   levelValue.textContent = String(game.level).padStart(2, '0');
+  zoneValue.textContent = getZone(game.frog.row);
   countdownValue.textContent = formatClock(game.timer);
   playerCount.textContent = String(game.players.length);
   rosterCount.textContent = `${game.players.length} / 100`;
@@ -105,7 +158,6 @@ function updateHud() {
 
 function renderRoster() {
   walletList.replaceChildren();
-
   if (!game.players.length) {
     const empty = document.createElement('li');
     empty.className = 'placeholder';
@@ -118,12 +170,10 @@ function renderRoster() {
     const item = document.createElement('li');
     item.textContent = shortWallet(player.wallet);
     item.title = player.wallet;
-
     if (player.wallet === game.activeWallet) {
       item.classList.add('active');
       item.textContent += '  ACTIVE';
     }
-
     item.addEventListener('click', () => {
       if (game.state !== 'lobby') return;
       game.activeWallet = player.wallet;
@@ -132,7 +182,6 @@ function renderRoster() {
       renderRoster();
       renderLeaderboard();
     });
-
     walletList.append(item);
   }
 }
@@ -142,7 +191,6 @@ function createLeaderboardRow(player, index, prize = 0) {
   const rank = document.createElement('span');
   const wallet = document.createElement('span');
   const score = document.createElement('span');
-
   rank.className = 'rank-badge';
   wallet.className = 'entry-wallet';
   score.className = 'entry-score';
@@ -151,14 +199,12 @@ function createLeaderboardRow(player, index, prize = 0) {
   wallet.title = player.wallet;
   score.textContent = `${player.score} pts`;
   row.append(rank, wallet, score);
-
   if (prize) {
     const prizeLine = document.createElement('span');
     prizeLine.className = 'entry-prize';
     prizeLine.textContent = `${Math.round(prizeShares[index] * 100)}% projected reward - ${formatMoney(prize)}`;
     row.append(prizeLine);
   }
-
   return row;
 }
 
@@ -168,10 +214,7 @@ function getRankedPlayers() {
 
 function renderLeaderboard(final = false) {
   leaderboardList.replaceChildren();
-  const ranked = final
-    ? game.payouts.map((payout) => payout.player)
-    : getRankedPlayers().slice(0, 3);
-
+  const ranked = final ? game.payouts.map((payout) => payout.player) : getRankedPlayers().slice(0, 3);
   if (!ranked.length) {
     const empty = document.createElement('li');
     empty.className = 'empty';
@@ -179,18 +222,11 @@ function renderLeaderboard(final = false) {
     leaderboardList.append(empty);
     return;
   }
-
-  ranked.forEach((player, index) => {
-    const reward = final ? game.payouts[index].amount : 0;
-    leaderboardList.append(createLeaderboardRow(player, index, reward));
-  });
+  ranked.forEach((player, index) => leaderboardList.append(createLeaderboardRow(player, index, final ? game.payouts[index].amount : 0)));
 }
 
 function calculatePayouts() {
-  const eligibleWinners = getRankedPlayers()
-    .filter((player) => player.score > 0)
-    .slice(0, prizeShares.length);
-
+  const eligibleWinners = getRankedPlayers().filter((player) => player.score > 0).slice(0, prizeShares.length);
   const payouts = eligibleWinners.map((player, index) => ({
     place: index + 1,
     wallet: player.wallet,
@@ -201,7 +237,6 @@ function calculatePayouts() {
     status: 'pending_backend_settlement',
   }));
   const paidAmount = payouts.reduce((total, payout) => total + payout.amount, 0);
-
   return {
     roundId: game.roundId,
     poolAmount: config.pool,
@@ -212,9 +247,7 @@ function calculatePayouts() {
 }
 
 function publishPayoutManifest(manifest) {
-  window.dispatchEvent(new CustomEvent('bullbank:round-complete', {
-    detail: manifest,
-  }));
+  window.dispatchEvent(new CustomEvent('bullbank:round-complete', { detail: manifest }));
 }
 
 function addWallet(rawWallet) {
@@ -224,13 +257,11 @@ function addWallet(rawWallet) {
     entryHint.classList.remove('active');
     return;
   }
-
   if (!isPlausibleWallet(wallet)) {
     entryHint.textContent = 'Enter a valid base58 Solana wallet address (32-44 characters).';
     entryHint.classList.remove('active');
     return;
   }
-
   const existing = game.players.find((player) => player.wallet === wallet);
   if (existing) {
     game.activeWallet = existing.wallet;
@@ -240,7 +271,6 @@ function addWallet(rawWallet) {
     game.activeWallet = wallet;
     entryHint.textContent = `${shortWallet(wallet)} entered. You are ready to play.`;
   }
-
   entryHint.classList.add('active');
   renderRoster();
   renderLeaderboard();
@@ -248,96 +278,139 @@ function addWallet(rawWallet) {
 }
 
 function resetFrog() {
-  game.frog.col = 4;
-  game.frog.row = 6;
+  game.frog.x = (canvas.width - config.frogSize) / 2;
+  game.frog.row = 12;
   game.frog.hop = 0;
 }
 
 function createCars() {
   const laneSettings = [
-    { row: 1, direction: 1, speed: 85, count: 2 },
-    { row: 2, direction: -1, speed: 120, count: 3 },
-    { row: 3, direction: 1, speed: 150, count: 2 },
-    { row: 4, direction: -1, speed: 105, count: 3 },
-    { row: 5, direction: 1, speed: 135, count: 2 },
+    { row: 11, direction: -1, speed: 105, count: 3 },
+    { row: 10, direction: 1, speed: 90, count: 3 },
+    { row: 5, direction: -1, speed: 125, count: 3 },
+    { row: 4, direction: 1, speed: 110, count: 3 },
   ];
-
   game.cars = laneSettings.flatMap((lane, laneIndex) =>
     Array.from({ length: lane.count }, (_, index) => ({
       row: lane.row,
       direction: lane.direction,
       speed: lane.speed,
-      width: 74 + ((laneIndex + index) % 2) * 16,
+      width: 58 + ((laneIndex + index) % 2) * 16,
       x: lane.direction > 0
-        ? -180 + index * 300 + laneIndex * 67
-        : canvas.width + 80 - index * 270 - laneIndex * 48,
+        ? -140 + index * 300 + laneIndex * 43
+        : canvas.width + 160 - index * 250 - laneIndex * 15,
       color: carPalette[(laneIndex + index) % carPalette.length],
+      speedMultiplier: 1,
     }))
   );
+}
 
-  applyDifficulty();
+function createLogs() {
+  const laneSettings = [
+    { row: 8, direction: 1, speed: 44, count: 3 },
+    { row: 7, direction: -1, speed: 55, count: 3 },
+    { row: 2, direction: 1, speed: 63, count: 3 },
+    { row: 1, direction: -1, speed: 50, count: 3 },
+  ];
+  game.logs = laneSettings.flatMap((lane, laneIndex) =>
+    Array.from({ length: lane.count }, (_, index) => ({
+      row: lane.row,
+      direction: lane.direction,
+      speed: lane.speed,
+      baseWidth: 150 - (laneIndex % 2) * 12,
+      width: 150 - (laneIndex % 2) * 12,
+      x: lane.direction > 0
+        ? -165 + index * 290 + laneIndex * 35
+        : canvas.width + 30 - index * 280 - laneIndex * 52,
+      speedMultiplier: 1,
+    }))
+  );
 }
 
 function createTrafficCar(laneIndex) {
-  const laneSettings = [
-    { row: 1, direction: 1, speed: 85 },
-    { row: 2, direction: -1, speed: 120 },
-    { row: 3, direction: 1, speed: 150 },
-    { row: 4, direction: -1, speed: 105 },
-    { row: 5, direction: 1, speed: 135 },
+  const lanes = [
+    { row: 11, direction: -1, speed: 105 },
+    { row: 10, direction: 1, speed: 90 },
+    { row: 5, direction: -1, speed: 125 },
+    { row: 4, direction: 1, speed: 110 },
   ];
-  const lane = laneSettings[laneIndex % laneSettings.length];
+  const lane = lanes[laneIndex % lanes.length];
   const index = game.cars.length;
-
   return {
-    row: lane.row,
-    direction: lane.direction,
-    speed: lane.speed,
-    width: 74 + (index % 2) * 16,
-    x: lane.direction > 0 ? -180 - (laneIndex * 47) : canvas.width + 80 + (laneIndex * 47),
+    ...lane,
+    width: 58 + (index % 2) * 16,
+    x: lane.direction > 0 ? -170 - laneIndex * 42 : canvas.width + 90 + laneIndex * 42,
     color: carPalette[index % carPalette.length],
+    speedMultiplier: 1,
   };
 }
 
 function applyDifficulty() {
   const speedMultiplier = 1 + (game.level - 1) * config.speedIncreasePerLevel;
-  const targetCarCount = 12 + Math.min(game.level - 1, 6);
-
-  for (const car of game.cars) {
-    car.speedMultiplier = speedMultiplier;
+  const targetCarCount = 12 + Math.min(game.level - 1, 8);
+  for (const car of game.cars) car.speedMultiplier = speedMultiplier;
+  for (const log of game.logs) {
+    log.speedMultiplier = speedMultiplier;
+    log.width = Math.max(88, log.baseWidth - (game.level - 1) * 4);
   }
-
   while (game.cars.length < targetCarCount) {
-    const newCar = createTrafficCar(game.cars.length % 5);
-    newCar.speedMultiplier = speedMultiplier;
-    game.cars.push(newCar);
+    const car = createTrafficCar(game.cars.length % 4);
+    car.speedMultiplier = speedMultiplier;
+    game.cars.push(car);
   }
 }
 
-function updateCars(deltaSeconds) {
+function updateObstacles(deltaSeconds) {
   for (const car of game.cars) {
     car.x += car.speed * car.speedMultiplier * car.direction * deltaSeconds;
-    if (car.direction > 0 && car.x > canvas.width + 115) car.x = -car.width - 80;
-    if (car.direction < 0 && car.x < -car.width - 115) car.x = canvas.width + 80;
+    if (car.direction > 0 && car.x > canvas.width + 85) car.x = -car.width - 80;
+    if (car.direction < 0 && car.x < -car.width - 85) car.x = canvas.width + 80;
+  }
+  for (const log of game.logs) {
+    log.x += log.speed * log.speedMultiplier * log.direction * deltaSeconds;
+    if (log.direction > 0 && log.x > canvas.width + 60) log.x = -log.width - 60;
+    if (log.direction < 0 && log.x < -log.width - 60) log.x = canvas.width + 60;
   }
 }
 
 function frogRect() {
   return {
-    x: game.frog.col * config.tile + 24,
-    y: game.frog.row * config.tile + 24,
-    width: 32,
-    height: 32,
+    x: game.frog.x,
+    y: game.frog.row * config.tile + 10,
+    width: config.frogSize,
+    height: config.frogSize,
   };
 }
 
-function hitDetected() {
+function supportingLog() {
   const frog = frogRect();
-  return game.cars.some((car) => {
+  return game.logs.find((log) =>
+    log.row === game.frog.row &&
+    frog.x + frog.width - 5 > log.x &&
+    frog.x + 5 < log.x + log.width
+  );
+}
+
+function getCollisionReason() {
+  const frog = frogRect();
+  const hitByCar = game.cars.some((car) => {
     if (car.row !== game.frog.row) return false;
-    const carY = car.row * config.tile + 17;
-    return frog.x < car.x + car.width && frog.x + frog.width > car.x && frog.y < carY + 45 && frog.y + frog.height > carY;
+    const carY = car.row * config.tile + 8;
+    return frog.x < car.x + car.width && frog.x + frog.width > car.x && frog.y < carY + 34 && frog.y + frog.height > carY;
   });
+  if (hitByCar) return 'collision';
+
+  if (config.riverRows.includes(game.frog.row)) {
+    const log = supportingLog();
+    if (!log || game.frog.x < 0 || game.frog.x + config.frogSize > canvas.width) return 'water';
+  }
+  return null;
+}
+
+function carryFrog(deltaSeconds) {
+  if (!config.riverRows.includes(game.frog.row)) return;
+  const log = supportingLog();
+  if (log) game.frog.x += log.speed * log.speedMultiplier * log.direction * deltaSeconds;
 }
 
 function bankCurrentScore() {
@@ -356,10 +429,11 @@ function completeRun() {
   bankCurrentScore();
   resetFrog();
   updateHud();
+  playSound('score');
   setStatus(
     leveledUp
-      ? `Rush level ${game.level}: traffic speed and density increased.`
-      : `Checkpoint banked. ${game.score} ${game.score === 1 ? 'point' : 'points'} on the board.`,
+      ? `Level ${game.level}: vehicles are faster and logs are shorter.`
+      : `Finish reached. ${game.score} ${game.score === 1 ? 'point' : 'points'} banked.`,
     true
   );
 }
@@ -372,21 +446,20 @@ function endRound(reason) {
   const manifest = calculatePayouts();
   game.payouts = manifest.payouts;
   renderLeaderboard(true);
-
   payoutSummary.hidden = false;
   payoutSummary.textContent = `PAYOUT MANIFEST: ${manifest.payouts.length} winner${manifest.payouts.length === 1 ? '' : 's'} eligible | ${formatMoney(manifest.unclaimedAmount)} unclaimed`;
   publishPayoutManifest(manifest);
 
   const winner = manifest.payouts[0];
-  const title = reason === 'collision' ? 'Run ended.' : 'Round complete.';
+  const title = reason === 'collision' ? 'Traffic got you.' : reason === 'water' ? 'The river got you.' : 'Round complete.';
   const detail = winner
     ? `${shortWallet(winner.wallet)} takes first with ${winner.score} points. The fixed payout manifest is ready for backend settlement.`
     : `No eligible score was posted. The full ${formatMoney(config.pool)} remains unclaimed.`;
-
   roundLabel.textContent = 'ROUND COMPLETE';
   setStatus(detail, true);
   showOverlay(title, detail, 'Play another round');
   startButton.textContent = 'New round';
+  playSound('hit');
 }
 
 function startRound() {
@@ -395,24 +468,26 @@ function startRound() {
     walletInput.focus();
     return;
   }
-
   if (game.state === 'running') return;
 
+  ensureAudio();
   game.state = 'running';
   game.timer = config.roundLength;
   game.score = 0;
   game.level = 1;
   game.payouts = [];
-  game.roundId = `crossy-${Date.now()}`;
+  game.roundId = `frogger-${Date.now()}`;
   game.lastTimestamp = 0;
   resetFrog();
   createCars();
+  createLogs();
+  applyDifficulty();
   updateHud();
   hideOverlay();
   payoutSummary.hidden = true;
   roundLabel.textContent = 'ROUND LIVE';
   startButton.textContent = 'Round live';
-  setStatus(`Round live for ${shortWallet(game.activeWallet)}. Reach the neon bank zone to score.`, true);
+  setStatus(`Round live for ${shortWallet(game.activeWallet)}. Cross both roads and both rivers to reach the finish.`, true);
   game.animationFrame = requestAnimationFrame(loop);
 }
 
@@ -427,109 +502,127 @@ function resetGame() {
   game.lastTimestamp = 0;
   resetFrog();
   createCars();
+  createLogs();
+  applyDifficulty();
   updateHud();
   renderLeaderboard();
   payoutSummary.hidden = true;
-  roundLabel.textContent = 'WAITING FOR PLAYERS';
+  roundLabel.textContent = 'WAITING FOR HOPPERS';
   startButton.textContent = 'Start round';
   setStatus('Round reset. Select an entered wallet, then start when ready.');
-  showOverlay('Ready to rush?', 'Enter a wallet, then start the round. Cross each road to bank your score.', 'Start playing');
+  showOverlay('Ready to hop?', 'Enter a wallet, cross two roads and two rivers, then reach the finish to bank your score.', 'Start playing');
   render();
 }
 
 function moveFrog(deltaColumn, deltaRow) {
   if (game.state !== 'running') return;
-  game.frog.col = clamp(game.frog.col + deltaColumn, 0, config.columns - 1);
+  game.frog.x = clamp(game.frog.x + deltaColumn * config.tile, 0, canvas.width - config.frogSize);
   game.frog.row = clamp(game.frog.row + deltaRow, 0, config.rows - 1);
   game.frog.hop = 1;
-
+  playSound('hop');
   if (game.frog.row === 0) completeRun();
+  updateHud();
 }
 
-function drawPixelBackground() {
+function drawBackground() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = '#143127';
-  ctx.fillRect(0, 0, canvas.width, config.tile);
-  ctx.fillStyle = '#0c211c';
-  ctx.fillRect(0, config.tile * 6, canvas.width, config.tile);
-
-  ctx.fillStyle = '#1a1d22';
-  ctx.fillRect(0, config.tile, canvas.width, config.tile * 5);
-
-  for (let row = 1; row <= 5; row += 1) {
+  for (let row = 0; row < config.rows; row += 1) {
     const y = row * config.tile;
-    ctx.fillStyle = row % 2 === 0 ? '#22262c' : '#1c2026';
-    ctx.fillRect(0, y, canvas.width, config.tile);
-    ctx.strokeStyle = 'rgba(255,255,255,.12)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([27, 22]);
-    ctx.beginPath();
-    ctx.moveTo(0, y + config.tile - 4);
-    ctx.lineTo(canvas.width, y + config.tile - 4);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    const zone = getZone(row);
+    if (zone === 'ROAD') {
+      ctx.fillStyle = row % 2 ? '#252a2e' : '#20262b';
+      ctx.fillRect(0, y, canvas.width, config.tile);
+      ctx.strokeStyle = 'rgba(255,255,255,.16)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([26, 24]);
+      ctx.beginPath();
+      ctx.moveTo(0, y + config.tile / 2);
+      ctx.lineTo(canvas.width, y + config.tile / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (zone === 'RIVER') {
+      ctx.fillStyle = row % 2 ? '#0f6098' : '#126eab';
+      ctx.fillRect(0, y, canvas.width, config.tile);
+      ctx.fillStyle = 'rgba(186,239,255,.17)';
+      for (let x = (row % 2) * 35; x < canvas.width; x += 95) {
+        ctx.fillRect(x, y + 13, 48, 3);
+        ctx.fillRect(x + 22, y + 35, 38, 3);
+      }
+    } else {
+      ctx.fillStyle = row === 0 ? '#1b4b21' : '#123b1d';
+      ctx.fillRect(0, y, canvas.width, config.tile);
+      for (let x = row % 2 ? 14 : 48; x < canvas.width; x += 92) {
+        ctx.fillStyle = 'rgba(128,202,69,.28)';
+        ctx.fillRect(x, y + 11, 14, 10);
+        ctx.fillRect(x + 11, y + 27, 10, 12);
+      }
+    }
   }
 
-  for (let x = 0; x < canvas.width; x += 60) {
-    ctx.fillStyle = x % 120 === 0 ? '#2d6042' : '#25543b';
-    ctx.fillRect(x + 5, 18, 18, 14);
-    ctx.fillRect(x + 28, 34, 12, 12);
-    ctx.fillRect(x + 42, 13, 11, 16);
-  }
-
-  ctx.fillStyle = '#dfff63';
-  ctx.fillRect(0, 68, canvas.width, 4);
-  ctx.fillStyle = '#80a72e';
-  ctx.fillRect(0, 0, canvas.width, 5);
-
-  ctx.fillStyle = 'rgba(223,255,99,.18)';
-  ctx.fillRect(22, 20, 162, 30);
-  ctx.fillStyle = '#e8f8ad';
-  ctx.font = '600 12px "DM Mono"';
-  ctx.fillText('NEON BANK ZONE', 38, 40);
+  ctx.fillStyle = '#88f73e';
+  [50, 150, 300, 450].forEach((y) => ctx.fillRect(0, y - 3, canvas.width, 3));
+  ctx.fillStyle = 'rgba(222,255,175,.8)';
+  ctx.font = '600 11px "DM Mono"';
+  ctx.fillText('FINISH', 20, 31);
+  ctx.fillText('RIVER II', 680, 82);
+  ctx.fillText('ROAD II', 685, 232);
+  ctx.fillText('RIVER I', 680, 382);
+  ctx.fillText('ROAD I', 685, 532);
 }
 
 function drawCar(car) {
-  const y = car.row * config.tile + 17;
-  const height = 45;
-
+  const y = car.row * config.tile + 8;
+  const height = 34;
   ctx.fillStyle = 'rgba(0,0,0,.28)';
-  ctx.fillRect(car.x + 4, y + height, car.width - 8, 4);
+  ctx.fillRect(car.x + 3, y + height, car.width - 6, 3);
   ctx.fillStyle = car.color;
-  ctx.fillRect(car.x, y + 8, car.width, height - 8);
-  ctx.fillStyle = '#15171b';
-  ctx.fillRect(car.x + 10, y + 16, car.width - 20, 13);
-  ctx.fillStyle = '#bdeaff';
-  ctx.fillRect(car.x + (car.direction > 0 ? car.width - 16 : 7), y + 20, 9, 6);
-  ctx.fillStyle = '#0d1013';
-  ctx.fillRect(car.x + 11, y + height - 2, 14, 6);
-  ctx.fillRect(car.x + car.width - 25, y + height - 2, 14, 6);
+  ctx.fillRect(car.x, y + 7, car.width, height - 7);
+  ctx.fillStyle = '#121519';
+  ctx.fillRect(car.x + 9, y + 13, car.width - 18, 10);
+  ctx.fillStyle = '#c4edff';
+  ctx.fillRect(car.x + (car.direction > 0 ? car.width - 13 : 4), y + 16, 7, 5);
+  ctx.fillStyle = '#0b0d0e';
+  ctx.fillRect(car.x + 8, y + height - 1, 11, 5);
+  ctx.fillRect(car.x + car.width - 19, y + height - 1, 11, 5);
+}
+
+function drawLog(log) {
+  const y = log.row * config.tile + 9;
+  const height = 29;
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.fillRect(log.x + 3, y + height, log.width - 6, 4);
+  ctx.fillStyle = '#914c20';
+  ctx.fillRect(log.x, y, log.width, height);
+  ctx.fillStyle = '#d47b32';
+  ctx.fillRect(log.x + 5, y + 5, log.width - 10, 5);
+  ctx.fillStyle = '#663715';
+  ctx.beginPath();
+  ctx.arc(log.x + 11, y + height / 2, 7, 0, Math.PI * 2);
+  ctx.arc(log.x + log.width - 11, y + height / 2, 7, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawFrog() {
-  const x = game.frog.col * config.tile + 19;
-  const y = game.frog.row * config.tile + 19 - Math.sin(game.frog.hop * Math.PI) * 8;
-
-  ctx.fillStyle = 'rgba(0,0,0,.28)';
-  ctx.fillRect(x + 5, y + 42, 38, 5);
-  ctx.fillStyle = '#dfff63';
-  ctx.fillRect(x + 8, y + 12, 34, 29);
-  ctx.fillStyle = '#b9dc45';
-  ctx.fillRect(x + 3, y + 24, 11, 17);
-  ctx.fillRect(x + 36, y + 24, 11, 17);
-  ctx.fillStyle = '#f0ffd0';
-  ctx.fillRect(x + 11, y + 4, 12, 12);
-  ctx.fillRect(x + 28, y + 4, 12, 12);
-  ctx.fillStyle = '#101410';
-  ctx.fillRect(x + 16, y + 8, 4, 4);
-  ctx.fillRect(x + 31, y + 8, 4, 4);
-  ctx.fillStyle = '#202b14';
-  ctx.fillRect(x + 20, y + 28, 11, 3);
+  const x = game.frog.x - Math.sin(game.frog.hop * Math.PI) * 2;
+  const y = game.frog.row * config.tile + 9 - Math.sin(game.frog.hop * Math.PI) * 7;
+  ctx.fillStyle = 'rgba(0,0,0,.3)';
+  ctx.fillRect(x + 3, y + 33, 28, 4);
+  ctx.fillStyle = '#8df73d';
+  ctx.fillRect(x + 5, y + 10, 22, 22);
+  ctx.fillStyle = '#63c62d';
+  ctx.fillRect(x, y + 19, 8, 13);
+  ctx.fillRect(x + 24, y + 19, 8, 13);
+  ctx.fillStyle = '#efffc8';
+  ctx.fillRect(x + 7, y + 3, 9, 9);
+  ctx.fillRect(x + 18, y + 3, 9, 9);
+  ctx.fillStyle = '#0b1307';
+  ctx.fillRect(x + 10, y + 6, 3, 3);
+  ctx.fillRect(x + 21, y + 6, 3, 3);
 }
 
 function render() {
-  drawPixelBackground();
+  drawBackground();
+  game.logs.forEach(drawLog);
   game.cars.forEach(drawCar);
   drawFrog();
 }
@@ -550,13 +643,14 @@ function loop(timestamp) {
     return;
   }
 
-  updateCars(deltaSeconds);
-  if (hitDetected()) {
+  carryFrog(deltaSeconds);
+  updateObstacles(deltaSeconds);
+  const collisionReason = getCollisionReason();
+  if (collisionReason) {
     render();
-    endRound('collision');
+    endRound(collisionReason);
     return;
   }
-
   updateHud();
   render();
   game.animationFrame = requestAnimationFrame(loop);
@@ -575,6 +669,13 @@ walletForm.addEventListener('submit', (event) => {
 startButton.addEventListener('click', startRound);
 resetButton.addEventListener('click', resetGame);
 overlayButton.addEventListener('click', startRound);
+audioToggle.addEventListener('click', () => {
+  ensureAudio();
+  game.audio.muted = !game.audio.muted;
+  audioToggle.textContent = game.audio.muted ? 'SOUND OFF' : 'SOUND ON';
+  audioToggle.setAttribute('aria-pressed', String(!game.audio.muted));
+  if (!game.audio.muted) playSound('hop');
+});
 
 window.addEventListener('keydown', (event) => {
   const movement = {
@@ -599,14 +700,18 @@ canvas.addEventListener('touchend', (event) => {
   const end = event.changedTouches[0];
   const deltaX = end.clientX - touchStart.clientX;
   const deltaY = end.clientY - touchStart.clientY;
-  if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 24) return;
-  if (Math.abs(deltaX) > Math.abs(deltaY)) moveFrog(deltaX > 0 ? 1 : -1, 0);
-  else moveFrog(0, deltaY > 0 ? 1 : -1);
+  if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 24) {
+    if (Math.abs(deltaX) > Math.abs(deltaY)) moveFrog(deltaX > 0 ? 1 : -1, 0);
+    else moveFrog(0, deltaY > 0 ? 1 : -1);
+  }
   touchStart = null;
 }, { passive: true });
 
 function init() {
+  resetFrog();
   createCars();
+  createLogs();
+  applyDifficulty();
   updateHud();
   renderRoster();
   renderLeaderboard();

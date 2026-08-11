@@ -1,19 +1,30 @@
-# BULL BANK Crossy Rush
+# $FROGGER Play 2 Earn
 
-Crossy Rush is a front-end arcade leaderboard for BULL BANK creator reward rounds. A player enters a Solana wallet, crosses the road to score, and the highest eligible scores receive the configured placement shares.
+$FROGGER is a front-end play-to-earn arcade game. Players enter a Solana wallet, cross two roads, ride logs through two rivers, and compete for a creator reward pool.
 
 ## Gameplay
 
-- Use **WASD**, arrow keys, or swipe on mobile to move.
-- Reach the Neon Bank Zone to bank one point and return to the starting row.
-- Every two banked points raises the rush level:
-  - Existing traffic becomes faster.
-  - One additional vehicle is added, up to six extra vehicles per round.
-- A collision or the 45-second timer ends the round.
+The board is a four-zone crossing course:
 
-## Payout calculation
+1. **Road I** - dodge moving traffic to reach the first grass checkpoint.
+2. **River I** - hop only onto logs. Landing in open water ends the run.
+3. **Road II** - cross a faster second traffic section.
+4. **River II** - ride the last log section to reach the finish.
 
-The front end produces an exact payout manifest at round end:
+Logs carry the frog in the direction of the current, so the player must adjust position while riding. Reach the FROGGER FINISH zone to bank a point and restart at the bottom. Every two points increase the rush level, making traffic and river currents faster, shortening logs, and adding more traffic.
+
+Controls:
+
+- **WASD** or arrow keys on desktop
+- Swipe on mobile
+
+## Audio
+
+The game includes synthesized hop, finish, and game-over sounds using the browser Web Audio API. Use the **SOUND ON / SOUND OFF** control above the board to toggle audio.
+
+## Reward rules
+
+At the end of a 45-second round, players with positive scores are ranked. Fixed rewards are calculated as:
 
 | Place | Share |
 | --- | ---: |
@@ -21,43 +32,11 @@ The front end produces an exact payout manifest at round end:
 | Second | 30% |
 | Third | 20% |
 
-- Only players with a positive score are eligible for a payout.
-- If a placement has no eligible player, its fixed share is recorded as **unclaimed**.
-- Values are calculated to cents; payout shares are never silently redistributed.
-
-For example, with a `$1,500` pool and one eligible winner, the manifest creates a `$750` first-place payout and marks `$750` as unclaimed.
+Missing placements stay unclaimed; they are not silently redistributed.
 
 ## Backend settlement handoff
 
-This project is a front end and cannot sign or send on-chain transfers itself. When a round ends, it emits a browser event named `bullbank:round-complete`:
-
-```js
-window.addEventListener('bullbank:round-complete', ({ detail }) => {
-  // Send detail to the trusted backend that validates scores and signs payouts.
-  console.log(detail);
-});
-```
-
-The event detail contains:
-
-```ts
-{
-  roundId: string;
-  poolAmount: number;
-  payouts: Array<{
-    place: number;
-    wallet: string;
-    score: number;
-    amount: number;
-    share: number;
-    status: "pending_backend_settlement";
-  }>;
-  unclaimedAmount: number;
-  status: "pending_backend_settlement";
-}
-```
-
-The backend should independently validate the round, scores, wallet eligibility, and available creator reward balance before making transfers.
+The front end emits a `bullbank:round-complete` browser event at the end of each round. Its detail contains the round ID, winner wallets, exact payout amounts, and unclaimed amount. A trusted backend must independently validate gameplay and wallet eligibility, then sign any real Solana transfers.
 
 ## Local development
 

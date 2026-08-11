@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BULL BANK | Crossy Rush</title>
+    <title>$FROGGER | Play 2 Earn</title>
     <meta
       name="description"
-      content="BULL BANK Crossy Rush is a live arcade leaderboard for creator reward rounds."
+      content="$FROGGER is a play-to-earn road and river crossing game with creator reward rounds."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,11 +20,11 @@
     <div class="site-glow"></div>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#" aria-label="BULL BANK home">
-          <span class="brand-mark" aria-hidden="true">B</span>
+        <a class="brand" href="#" aria-label="$FROGGER home">
+          <img class="brand-logo" src="public/frogger-logo.png" alt="$FROGGER Play 2 Earn logo" />
           <span class="brand-copy">
-            <span class="eyebrow">BULL BANK PRESENTS</span>
-            <span class="brand-name">CROSSY RUSH</span>
+            <span class="eyebrow">PLAY 2 EARN</span>
+            <span class="brand-name">$FROGGER</span>
           </span>
         </a>
 
@@ -38,8 +38,8 @@
         <section class="game-panel">
           <div class="game-header">
             <div>
-              <p class="eyebrow">CREATOR REWARD ROUND</p>
-              <h1>Outrun the rush.<br /><em>Claim the top.</em></h1>
+              <p class="eyebrow">PLAY 2 EARN REWARD ROUND</p>
+              <h1>Four zones.<br /><em>One finish.</em></h1>
             </div>
             <div class="pool-card">
               <span>Reward pool</span>
@@ -47,18 +47,21 @@
               <small>Top 3 split the round</small>
             </div>
           </div>
+          <div class="course-guide" aria-label="Course layout">
+            <span class="road-zone">ROAD</span><i></i><span class="river-zone">RIVER</span><i></i><span class="road-zone">ROAD</span><i></i><span class="river-zone">RIVER</span><i></i><span class="finish-zone">FINISH</span>
+          </div>
 
           <div class="game-frame">
             <div class="canvas-topline">
-              <span class="live-label"><i></i> <span id="roundLabel">WAITING FOR PLAYERS</span></span>
-              <span>WASD / ARROW KEYS</span>
+              <span class="live-label"><i></i> <span id="roundLabel">WAITING FOR HOPPERS</span></span>
+              <span class="canvas-actions"><span>WASD / ARROWS</span><button id="audioToggle" type="button" aria-pressed="true">SOUND ON</button></span>
             </div>
-            <canvas id="gameCanvas" width="800" height="520" aria-label="Arcade frog road crossing game"></canvas>
+            <canvas id="gameCanvas" width="800" height="650" aria-label="Arcade frog road and river crossing game"></canvas>
             <div id="gameOverlay" class="game-overlay">
               <div class="overlay-content">
-                <span class="overlay-kicker">BULL BANK ARCADE</span>
-                <h2 id="overlayTitle">Ready to rush?</h2>
-                <p id="overlayText">Enter a wallet, then start the round. Cross each road to bank your score.</p>
+                <span class="overlay-kicker">$FROGGER ARCADE</span>
+                <h2 id="overlayTitle">Ready to hop?</h2>
+                <p id="overlayText">Enter a wallet, cross two roads and two rivers, then reach the finish to bank your score.</p>
                 <button id="overlayButton" type="button">Start playing</button>
               </div>
             </div>
@@ -69,6 +72,7 @@
               <div><span>Score</span><strong id="scoreValue">00</strong></div>
               <div><span>Best run</span><strong id="bestValue">00</strong></div>
               <div><span>Rush level</span><strong id="levelValue">01</strong></div>
+              <div><span>Zone</span><strong id="zoneValue">START</strong></div>
               <div class="timer-stat"><span>Round clock</span><strong id="countdownValue">00:45</strong></div>
             </div>
             <div class="control-buttons">
@@ -84,7 +88,7 @@
               <span class="card-index">01</span>
               <div>
                 <p class="eyebrow">PLAYER ACCESS</p>
-                <h2>Enter the rush</h2>
+                <h2>Enter the game</h2>
               </div>
             </div>
             <form id="walletForm" class="wallet-form">
