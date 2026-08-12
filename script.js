@@ -24,8 +24,11 @@ const overlayButton = document.getElementById('overlayButton');
 const startButton = document.getElementById('startButton');
 const resetButton = document.getElementById('resetButton');
 const audioToggle = document.getElementById('audioToggle');
+const tokenCaValue = document.getElementById('tokenCaValue');
+const copyTokenCa = document.getElementById('copyTokenCa');
 
 const config = {
+  tokenCa: '',
   pool: 1500,
   roundLength: 45,
   columns: 12,
@@ -70,6 +73,16 @@ function shortWallet(wallet) {
 
 function isPlausibleWallet(wallet) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet);
+}
+
+function updateTokenCa() {
+  const configuredCa = new URLSearchParams(window.location.search).get('ca') || config.tokenCa;
+  const tokenCa = configuredCa.trim();
+  const isValidTokenCa = isPlausibleWallet(tokenCa);
+
+  tokenCaValue.textContent = isValidTokenCa ? tokenCa : 'Not configured';
+  tokenCaValue.title = isValidTokenCa ? tokenCa : '';
+  copyTokenCa.disabled = !isValidTokenCa;
 }
 
 function activePlayer() {
@@ -667,6 +680,21 @@ audioToggle.addEventListener('click', () => {
   audioToggle.setAttribute('aria-pressed', String(!game.audio.muted));
   if (!game.audio.muted) playSound('hop');
 });
+copyTokenCa.addEventListener('click', () => {
+  const tokenCa = tokenCaValue.textContent;
+  if (!isPlausibleWallet(tokenCa)) return;
+
+  navigator.clipboard.writeText(tokenCa).then(
+    () => {
+      copyTokenCa.textContent = 'Copied';
+      setTimeout(() => { copyTokenCa.textContent = 'Copy'; }, 1500);
+    },
+    () => {
+      copyTokenCa.textContent = 'Copy failed';
+      setTimeout(() => { copyTokenCa.textContent = 'Copy'; }, 1500);
+    }
+  );
+});
 
 window.addEventListener('keydown', (event) => {
   const movement = {
@@ -700,6 +728,7 @@ canvas.addEventListener('touchend', (event) => {
 
 function init() {
   resetFrog();
+  updateTokenCa();
   createCars();
   createLogs();
   applyDifficulty();

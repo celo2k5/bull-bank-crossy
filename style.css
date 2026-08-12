@@ -100,6 +100,33 @@ h2 { margin: 3px 0 0; font-size: 1.1rem; letter-spacing: -.04em; }
 .pool-card strong { display: block; margin: 6px 0; color: var(--lime); font-family: var(--mono); font-size: 1.45rem; }
 .pool-card small { color: var(--paper); font-size: .55rem; }
 
+.token-ca-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(134,246,56,.04);
+  font-family: var(--mono);
+}
+.token-ca-card span { color: var(--muted); font-size: .57rem; letter-spacing: .08em; text-transform: uppercase; }
+.token-ca-card code { flex: 1; min-width: 0; overflow: hidden; color: var(--paper); font-family: inherit; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.token-ca-card button {
+  border: 0;
+  padding: 5px 7px;
+  border-radius: 3px;
+  color: #0b1b0d;
+  background: var(--lime);
+  font: inherit;
+  font-size: .57rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.token-ca-card button:disabled { cursor: not-allowed; opacity: .45; }
+
 .course-guide {
   display: flex;
   align-items: center;

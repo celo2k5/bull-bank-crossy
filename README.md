@@ -21,6 +21,20 @@ Controls:
 
 The game includes synthesized hop, finish, and game-over sounds using the browser Web Audio API. Use the **SOUND ON / SOUND OFF** control above the board to toggle audio.
 
+## Token CA
+
+The game shows a copyable **Official Token CA** card above the course guide. Set the official mint in `script.js`:
+
+```js
+tokenCa: 'YOUR_FROGGER_TOKEN_MINT',
+```
+
+For a temporary hosted preview, it also accepts a valid Solana mint in the URL:
+
+```text
+https://your-domain.example/?ca=YOUR_FROGGER_TOKEN_MINT
+```
+
 ## Reward rules
 
 At the end of a 45-second round, players with positive scores are ranked. Fixed rewards are calculated as:
